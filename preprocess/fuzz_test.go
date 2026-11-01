@@ -25,6 +25,9 @@ func FuzzRun(f *testing.F) {
 		"#endinput\nnever\n",
 		"\\\n#define FOO\\\n 1\n",
 		"#if 1\n#if 1\n#if 1\n#endif\n#endif\n#endif\n",
+		"#define TAG(%0) t_%0\n#define FONT: TAG(FONT):\nnative Example(FONT:font);\n",
+		"#define Object[%0] GetObject(%0)\nObject[one(1, 2)]\nObject[unterminated\n",
+		"#define COMMAND:%0[%1](%2) public cmd_%0_%1(%2)\nCOMMAND:open[admin](playerid)\n",
 	}
 	for _, s := range seeds {
 		f.Add([]byte(s))

@@ -105,6 +105,7 @@ func (e *engine) handleDefine(f *frame, hash token.Token) {
 	}
 	nameTok := f.advance()
 	name := nameTok.Text(f.source)
+	patternStart := f.pos
 
 	m := Macro{Name: name, Kind: MacroObjectLike, File: f.fileIndex, DefSpan: spanOf(hash, nameTok)}
 
@@ -150,9 +151,33 @@ func (e *engine) handleDefine(f *frame, hash token.Token) {
 		m.ParamCount = idx
 		_ = lparen
 	}
+	// Pawn's pattern ends at whitespace, not at the identifier or closing
+	// parenthesis. Keep fixed punctuation in the match, never in the body.
+	end := f.toks[f.pos-1].End.Offset
+	for !f.atEnd() && f.cur().Start.Offset == end && !endsLine(f.toks[f.pos-1]) {
+		end = f.advance().End.Offset
+		if m.pattern == nil {
+			m.pattern = &macroPattern{}
+		}
+	}
+	if m.pattern != nil {
+		m.pattern.spelling = string(f.source[nameTok.Start.Offset:end])
+		m.pattern.tokens = toPtoks(f.source, f.toks[patternStart:f.pos], f.fileIndex)
+		m.ParamSlots = make(map[int]int)
+		m.ParamCount = 0
+		for _, item := range m.pattern.tokens {
+			if label, ok := parseParamIndex(item.text); item.Kind == token.MacroParam && ok {
+				if _, exists := m.ParamSlots[label]; !exists {
+					m.ParamSlots[label] = m.ParamCount
+					m.ParamCount++
+				}
+			}
+		}
+	}
 
 	if !endsLine(f.toks[f.pos-1]) {
 		m.Body = retainTokenOrigins(toPtoks(f.source, e.collectRestOfLine(f), f.fileIndex))
+		m.textualBody = needsTextSubstitution(m)
 	}
 
 	if !f.currentActive() {
@@ -178,7 +203,10 @@ func closingParenOnLine(f *frame) bool {
 }
 
 func macroEqual(a, b Macro) bool {
-	if a.Kind != b.Kind || a.ParamCount != b.ParamCount || a.FlexiblePattern != b.FlexiblePattern || len(a.ParamSlots) != len(b.ParamSlots) || len(a.NamedParams) != len(b.NamedParams) || len(a.Body) != len(b.Body) {
+	if a.Kind != b.Kind || (a.pattern == nil) != (b.pattern == nil) || a.textualBody != b.textualBody || a.ParamCount != b.ParamCount || a.FlexiblePattern != b.FlexiblePattern || len(a.ParamSlots) != len(b.ParamSlots) || len(a.NamedParams) != len(b.NamedParams) || len(a.Body) != len(b.Body) {
+		return false
+	}
+	if a.pattern != nil && a.pattern.spelling != b.pattern.spelling {
 		return false
 	}
 	for label, slot := range a.ParamSlots {
@@ -193,6 +221,10 @@ func macroEqual(a, b Macro) bool {
 	}
 	for i := range a.Body {
 		if a.Body[i].Kind != b.Body[i].Kind || a.Body[i].text != b.Body[i].text {
+			return false
+		}
+		if a.textualBody && i > 0 &&
+			(a.Body[i-1].End.Offset == a.Body[i].Start.Offset) != (b.Body[i-1].End.Offset == b.Body[i].Start.Offset) {
 			return false
 		}
 	}

@@ -13,6 +13,12 @@ func (e *engine) emitActive(f *frame) {
 	if tok.Kind == token.Identifier {
 		name := tok.Text(f.source)
 		if m, ok := e.macros.lookup(name); ok {
+			if m.pattern != nil {
+				if !e.expandPatternAt(f, tok, m) {
+					e.appendOut(toPtok(f.source, tok, f.fileIndex))
+				}
+				return
+			}
 			switch m.Kind {
 			case MacroObjectLike:
 				e.expandObjectAt(f, tok, m)
@@ -206,6 +212,9 @@ func (e *engine) collectArgs(f *frame) (args [][]ptok, closeParen token.Token, o
 }
 
 func substituteParams(m Macro, args [][]ptok, inv token.Span) []ptok {
+	if m.textualBody {
+		return substituteText(m, args, inv)
+	}
 	var out []ptok
 	for _, bt := range m.Body {
 		if bt.Kind == token.MacroParam {
@@ -261,6 +270,24 @@ func (e *engine) expandRun(f *frame, toks []ptok, hide hideSet, depth int) {
 		t := toks[i]
 		if t.Kind == token.Identifier && !hide[t.text] {
 			if m, ok := e.macros.lookup(t.text); ok {
+				if m.pattern != nil {
+					args, consumed, matched := matchPattern(m, func(index int) (ptok, bool) {
+						at := i + 1 + index
+						if at >= len(toks) || endsLine(toks[at-1].Token) {
+							return ptok{}, false
+						}
+						return toks[at], true
+					}, e.pollCancellation)
+					if matched {
+						inv := nestedInvocationSpan(t, toks[i+consumed])
+						e.expandRun(f, substituteParams(m, args, inv), hide.with(m.Name), depth+1)
+						i += consumed + 1
+						continue
+					}
+					e.appendOut(t)
+					i++
+					continue
+				}
 				switch m.Kind {
 				case MacroObjectLike:
 					inv := nestedInvocationSpan(t, t)

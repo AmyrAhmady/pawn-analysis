@@ -19,6 +19,18 @@ Original syntax and symbols retain editor offsets. Expanded results are opt-in b
 - `sema`: resolver-aware name checks.
 - root package: the shared per-file pipeline.
 
+Macro matching retains fixed punctuation after the identifier prefix (for
+example `TAG:` and `Object[%0]`), consuming it only when the invocation matches.
+Captures keep nested groups and quoted delimiters intact. Replacements preserve
+text adjacency: `prefix_%0` becomes one identifier, then participates in normal
+macro rescanning. Re-lexing is limited to replacements whose capture boundaries
+can form different tokens; ordinary expression macros keep the token-based
+expansion path. Invocation and spelling origins remain available after pasting.
+
+Regression coverage in `preprocess/pattern_regression_test.go` checks matching,
+substitution and origins. `macro_signature_test.go` checks included native
+signatures, optional/variadic arguments, invalid calls and incremental edits.
+
 The query package caches analysis across immutable, versioned snapshots. Its
 workspace pass resolves file-scope declarations across every document in the
 same snapshot. It prepares syntax once, builds the shared name resolver, then
