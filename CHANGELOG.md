@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Match punctuation-bearing macro patterns before substituting their bodies,
+  including tagged prefixes and bracket-delimited captures.
+- Preserve textual token pasting in macro replacements and rescan the resulting
+  identifiers, preventing false argument counts for included function signatures.
+
 ## 0.30.24 - 2026-08-03
 
 ### Performance

@@ -25,6 +25,7 @@ func (k MacroKind) String() string {
 type Macro struct {
 	Name            string
 	Kind            MacroKind
+	textualBody     bool
 	ParamCount      int
 	ParamSlots      map[int]int
 	NamedParams     map[string]int
@@ -32,6 +33,14 @@ type Macro struct {
 	Body            []ptok
 	File            uint32
 	DefSpan         ByteRange
+	pattern         *macroPattern
+}
+
+// macroPattern retains punctuation and captures following a macro prefix.
+// Ordinary macros pay only for a nil pointer, not a suffix allocation.
+type macroPattern struct {
+	spelling string
+	tokens   []ptok
 }
 
 // ReplacementCallable returns the function called by a forwarding macro.
