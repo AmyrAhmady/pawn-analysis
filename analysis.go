@@ -784,6 +784,7 @@ func CompleteContext(ctx context.Context, prepared *Result, opts Options) (*Resu
 		previousTags = opts.Previous.tagCache
 	}
 	stage = beginStage(opts.Trace, StageSemanticTags)
+	resolver.declarationTags = expandedDeclarationTags(ctx, prepared)
 	tagDiagnostics, tagCache, reusedTags, err := sema.CheckTagsCachedIndexedContext(
 		ctx,
 		prepared.Parse.Syntax(), prepared.Symbols, resolver, previousTags, opts.Revision, prepared.Declarations,
@@ -1078,10 +1079,11 @@ func insideMacroInvocation(span source.Span, ranges []preprocess.ByteRange) bool
 }
 
 type nameResolver struct {
-	macros      map[string]preprocess.Macro
-	symbols     *symbol.Table
-	globalNames map[string]symbol.ID
-	next        sema.Resolver
+	macros          map[string]preprocess.Macro
+	symbols         *symbol.Table
+	globalNames     map[string]symbol.ID
+	declarationTags map[source.Span]string
+	next            sema.Resolver
 }
 
 // newNameResolver reuses the file scope's existing name index instead of
@@ -1132,6 +1134,9 @@ func (r nameResolver) ResolveTag(tag string) string {
 }
 
 func (r nameResolver) ResolveDeclarationTag(original symbol.Symbol) (string, bool) {
+	if tag, ok := r.declarationTags[original.Span]; ok {
+		return tag, true
+	}
 	expanded, ok := r.global(original.Name)
 	// A generated declaration maps to its entire invocation. Confirm it
 	// comes from this declaration before adopting its return tag.

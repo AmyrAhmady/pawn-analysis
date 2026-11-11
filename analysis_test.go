@@ -932,6 +932,45 @@ func TestAnalyzeDoesNotRedeclareFunctionMacroInvocations(t *testing.T) {
 	}
 }
 
+func TestAnalyzeUsesRenamedMacroDeclarationReturnTag(t *testing.T) {
+	text := []byte(`#include <commands>
+native bool:SendMessage(playerid);
+COMMAND:one(playerid) { return SendMessage(playerid); }
+TYPED:two(playerid) { return SendMessage(playerid); }
+Float:plain(playerid) { return SendMessage(playerid); }
+main() {}
+`)
+	opts := analysis.Options{
+		Includes: preprocess.MapResolver{"commands": []byte(`
+#define DEFINE_COMMAND:%1(%2) forward cmd_%1(%2); public cmd_%1(%2)
+#define COMMAND:%1(%2) DEFINE_COMMAND:%1(%2)
+#define TYPED:%1(%2) stock Float:typed_%1(%2)
+`)},
+		SkipSemantics: true,
+	}
+	// Complete the tag pass without the full expanded syntax tree or symbol
+	// table. Only the two actual Float declarations should warn.
+	prepared := analysis.Analyze(text, opts)
+	result, err := analysis.CompleteContext(context.Background(), prepared, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mismatches []string
+	for _, item := range result.Diagnostics {
+		if item.Code == "pawn-analysis:sema/tag-mismatch" {
+			mismatches = append(mismatches, item.Message)
+		}
+	}
+	if len(mismatches) != 2 {
+		t.Fatalf("tag mismatches = %q, want one each for TYPED and plain", mismatches)
+	}
+	for _, message := range mismatches {
+		if message != "return value expects tag Float, got bool" {
+			t.Fatalf("unexpected tag mismatch: %s", message)
+		}
+	}
+}
+
 func TestAnalyzeLimitsExpandedOutput(t *testing.T) {
 	result := analysis.Analyze([]byte("main() { new values[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 }; }\n"), analysis.Options{MaxOutputTokens: 8})
 	for _, item := range result.Diagnostics {

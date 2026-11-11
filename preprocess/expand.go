@@ -114,12 +114,11 @@ func nestedInvocationSpan(start, end ptok) token.Span {
 
 func (e *engine) expandObjectAt(f *frame, tok token.Token, m Macro) {
 	inv := invocationSpan(f.fileIndex, tok, tok)
-	e.recordInvocation(inv)
 	body := make([]ptok, len(m.Body))
 	for i, bt := range m.Body {
 		body[i] = wrapOrigin(bt, inv, m.Name)
 	}
-	e.expandRun(f, body, hideSet{}.with(m.Name), 1)
+	e.expandInvocation(f, inv, body, m.Name)
 }
 
 func (e *engine) expandFunctionAt(f *frame, tok token.Token, m Macro) {
@@ -151,9 +150,8 @@ func (e *engine) expandFunctionAt(f *frame, tok token.Token, m Macro) {
 			"macro invocation argument count mismatch", spanOf(tok, closeParen))
 	}
 	inv := invocationSpan(f.fileIndex, tok, closeParen)
-	e.recordInvocation(inv)
 	body := substituteParams(m, args, inv)
-	e.expandRun(f, body, hideSet{}.with(m.Name), 1)
+	e.expandInvocation(f, inv, body, m.Name)
 }
 
 func (e *engine) recordInvocation(inv token.Span) {
@@ -245,8 +243,21 @@ func substituteParams(m Macro, args [][]ptok, inv token.Span) []ptok {
 	return out
 }
 
-func (e *engine) expandRun(f *frame, toks []ptok, hide hideSet, depth int) {
-	e.expandReplacement(f, toks, &expansionCursor{frame: f}, hide, depth)
+func (e *engine) expandInvocation(f *frame, inv token.Span, toks []ptok, name string) {
+	index := len(e.invocations)
+	e.recordInvocation(inv)
+	start := len(e.expandedBuf)
+	sourcePos := f.pos
+	e.expandReplacement(f, toks, &expansionCursor{frame: f}, hideSet{}.with(name), 1)
+	if f.pos > sourcePos {
+		e.invocations[index].Range.End = f.toks[f.pos-1].End.Offset
+	}
+	if end := len(e.expandedBuf); end > start {
+		if start > 0 {
+			start++ // The first emitted token has a separating space.
+		}
+		e.invocations[index].Expansion = ByteRange{Start: start, End: end}
+	}
 }
 
 // A replacement may end in the prefix of another macro. Its lookahead can
