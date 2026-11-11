@@ -1,4 +1,4 @@
-github.com/AmyrAhmady/pawn-parser v0.0.0-20261111165522-e6ecc8e86f6e h1:dkpasVSRGewcUW7lP2gzkQIESAi3TtGwFApn70u7/os=
-github.com/AmyrAhmady/pawn-parser v0.0.0-20261111165522-e6ecc8e86f6e/go.mod h1:Egw7oGm4jkDpaWBvLkYItfNTZcAcvTg+gWjlAGL9rbI=
+github.com/AmyrAhmady/pawn-parser v0.0.0-20261111171621-aef31f442279 h1:aWWXKyKJ1GvqMd25LOUKMp0Xj3tCClYQA5KNdRxlIA0=
+github.com/AmyrAhmady/pawn-parser v0.0.0-20261111171621-aef31f442279/go.mod h1:Egw7oGm4jkDpaWBvLkYItfNTZcAcvTg+gWjlAGL9rbI=
 github.com/pawnkit/pawnkit-core v0.5.0 h1:faEI2LGaP9czSDaKxtw4qvGUNuft88qeR/MdW0jLmlg=
 github.com/pawnkit/pawnkit-core v0.5.0/go.mod h1:jGhXHEEzr8juezaRhh/AkGzX6S4eGQnprB83vrI1peU=

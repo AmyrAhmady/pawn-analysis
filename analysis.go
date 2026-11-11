@@ -52,29 +52,30 @@ type ReuseStats struct {
 
 // Result is one immutable file analysis.
 type Result struct {
-	File                source.FileID
-	Registry            *source.Registry
-	Preprocess          *preprocess.Result
-	Parse               *parser.CompactFile
-	ExpandedParse       *parser.CompactFile
-	Declarations        parser.DeclarationIndex
-	Symbols             *symbol.Table
-	ExpandedSymbols     *symbol.Table
-	Semantics           sema.Result
-	ControlFlow         []sema.FunctionFlow
-	FunctionFacts       map[symbol.ID]sema.FunctionFacts
-	Diagnostics         []diagnostic.Diagnostic
-	Reuse               ReuseStats
-	baseDiagnostics     []diagnostic.Diagnostic
-	flowCache           *sema.FlowCache
-	tagCache            *sema.TagCache
-	nameCache           *sema.NameCache
-	nameResult          sema.Result
-	stateDiagnostics    []diagnostic.Diagnostic
-	orderDiagnostics    []diagnostic.Diagnostic
-	directFunctionFacts map[symbol.ID]sema.FunctionFacts
-	reuseLocalSemantics bool
-	revision            string
+	File                 source.FileID
+	Registry             *source.Registry
+	Preprocess           *preprocess.Result
+	Parse                *parser.CompactFile
+	ExpandedParse        *parser.CompactFile
+	Declarations         parser.DeclarationIndex
+	Symbols              *symbol.Table
+	ExpandedSymbols      *symbol.Table
+	Semantics            sema.Result
+	ControlFlow          []sema.FunctionFlow
+	FunctionFacts        map[symbol.ID]sema.FunctionFacts
+	Diagnostics          []diagnostic.Diagnostic
+	Reuse                ReuseStats
+	baseDiagnostics      []diagnostic.Diagnostic
+	flowCache            *sema.FlowCache
+	tagCache             *sema.TagCache
+	nameCache            *sema.NameCache
+	nameResult           sema.Result
+	stateDiagnostics     []diagnostic.Diagnostic
+	orderDiagnostics     []diagnostic.Diagnostic
+	directFunctionFacts  map[symbol.ID]sema.FunctionFacts
+	reuseLocalSemantics  bool
+	conditionalMacroEnds map[int]int
+	revision             string
 }
 
 // Analyze runs the shared per-file pipeline.
@@ -168,10 +169,12 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 	var expandedTable *symbol.Table
 	reusedExpanded := reusableExpanded(pre, opts.Previous)
 	caseMacroEnds := originalCaseMacroEnds(pre)
-	originalOptions := parser.ParseOptions{CaseMacroEnds: caseMacroEnds}
+	conditionalMacroEnds := originalConditionalMacroEnds(pre)
+	originalOptions := parser.ParseOptions{CaseMacroEnds: caseMacroEnds, ConditionalMacroEnds: conditionalMacroEnds}
 	reusedOriginal := reusableOriginalSyntax(pre, opts.Previous, opts.ReuseCompatibleExpansion || reusedTrivia)
 	if reusedOriginal && !reusedPreprocess {
-		reusedOriginal = maps.Equal(caseMacroEnds, originalCaseMacroEnds(opts.Previous.Preprocess))
+		reusedOriginal = maps.Equal(caseMacroEnds, originalCaseMacroEnds(opts.Previous.Preprocess)) &&
+			maps.Equal(conditionalMacroEnds, opts.Previous.conditionalMacroEnds)
 	}
 	stableOriginalPositions := reusedOriginal
 	rebasedOriginal := false
@@ -343,6 +346,7 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 		File: fileID, Registry: registry, Preprocess: pre, Parse: parsed, ExpandedParse: expanded,
 		Declarations: declarations, Symbols: table, ExpandedSymbols: expandedTable,
 		Diagnostics: diagnostics, baseDiagnostics: diagnostics,
+		conditionalMacroEnds: conditionalMacroEnds,
 		reuseLocalSemantics: (localCandidate || reusedTrivia) && stableOriginalPositions && opts.Previous != nil &&
 			table == opts.Previous.Symbols,
 		revision: opts.Revision,
@@ -831,7 +835,8 @@ func CompleteContext(ctx context.Context, prepared *Result, opts Options) (*Resu
 	}
 	semantics.Diagnostics = append(semantics.Diagnostics, orderDiagnostics...)
 	var previousFlow *sema.FlowCache
-	if reusableDeclarations(prepared, opts.Previous) {
+	if reusableDeclarations(prepared, opts.Previous) &&
+		maps.Equal(prepared.conditionalMacroEnds, opts.Previous.conditionalMacroEnds) {
 		previousFlow = opts.Previous.flowCache
 	}
 	var cachedConstants map[symbol.ID]sema.Constant

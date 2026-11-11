@@ -154,12 +154,35 @@ func (p *exprEval) parseEquality() int64 {
 }
 
 func (p *exprEval) parseRelational() int64 {
-	return p.parseBinary(p.parseShift, []binOp{
+	operators := []binOp{
 		{token.Lt, func(a, b int64) int64 { return boolToInt(a < b) }},
 		{token.Gt, func(a, b int64) int64 { return boolToInt(a > b) }},
 		{token.LtEq, func(a, b int64) int64 { return boolToInt(a <= b) }},
 		{token.GtEq, func(a, b int64) int64 { return boolToInt(a >= b) }},
-	})
+	}
+	left := p.parseShift()
+	result := int64(1)
+	compared := false
+	for {
+		var compare func(int64, int64) int64
+		for _, operator := range operators {
+			if p.at(operator.kind) {
+				compare = operator.eval
+				break
+			}
+		}
+		if compare == nil {
+			if !compared {
+				return left
+			}
+			return result
+		}
+		p.advance()
+		right := p.parseShift()
+		result &= compare(left, right)
+		left = right
+		compared = true
+	}
 }
 
 func (p *exprEval) parseShift() int64 {

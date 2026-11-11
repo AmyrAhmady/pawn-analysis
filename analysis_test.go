@@ -951,6 +951,33 @@ main() {}
 	}
 }
 
+func TestAnalyzeConditionalMacroPreservesReachableCode(t *testing.T) {
+	text := []byte(`#define GUARD%0->%1; new %1; CHECK(%0);
+#define CHECK(%0);%2else if (%0)
+#assert !(3 < 2 < 1)
+#assert 1 < 2 <= 2
+stock Work(value) {
+    GUARD value -> result; else return 0;
+    return result;
+    return 5;
+}
+main() { return Work(0); }
+`)
+	result := analysis.Analyze(text, analysis.Options{})
+	var unreachable []string
+	for _, item := range result.Diagnostics {
+		switch item.Code {
+		case "pawn-analysis:sema/unreachable":
+			unreachable = append(unreachable, string(text[item.Primary.Start:item.Primary.End]))
+		case "pawn-analysis:preprocess/assert-failed":
+			t.Fatalf("unexpected assertion failure: %+v", item)
+		}
+	}
+	if len(unreachable) != 1 || unreachable[0] != "return 5;" {
+		t.Fatalf("unreachable statements = %q, want only return 5;", unreachable)
+	}
+}
+
 func TestAnalyzeUsesRenamedMacroDeclarationReturnTag(t *testing.T) {
 	text := []byte(`#include <commands>
 native bool:SendMessage(playerid);

@@ -302,6 +302,7 @@ func (c *tagChecker) checkPair(node parser.SyntaxNode, leftField, rightField, co
 	if !leftOK || !rightOK {
 		return
 	}
+	left, _ = relationalChainLeft(node, left)
 	expected, expectedOK := c.tag(left)
 	actual, actualOK := c.tag(right)
 	if expectedOK && actualOK && !c.tagsCompatible(expected, actual) {
@@ -462,6 +463,7 @@ func (c *tagChecker) operatorResult(node parser.SyntaxNode) (string, bool) {
 	name := "operator" + node.Token().Kind().String()
 	var operands []parser.SyntaxNode
 	if left, ok := node.Field("left"); ok {
+		left, _ = relationalChainLeft(node, left)
 		operands = append(operands, left)
 	}
 	if expression, ok := node.Field("expression"); ok {
