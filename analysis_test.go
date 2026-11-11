@@ -932,6 +932,25 @@ func TestAnalyzeDoesNotRedeclareFunctionMacroInvocations(t *testing.T) {
 	}
 }
 
+func TestAnalyzeMacroRenamedVariableRedeclarations(t *testing.T) {
+	text := []byte(`#define Iterator:%0<%1> generated_%0[%1]
+new Iterator:first<2>, first[2];
+new second[2], Iterator:second<2>;
+new duplicate, duplicate;
+main() {}
+`)
+	result := analysis.Analyze(text, analysis.Options{})
+	var messages []string
+	for _, item := range result.Diagnostics {
+		if item.Code == "pawn-analysis:symbol/redeclared" {
+			messages = append(messages, item.Message)
+		}
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0], "\"duplicate\"") {
+		t.Fatalf("redeclarations = %q, want only duplicate", messages)
+	}
+}
+
 func TestAnalyzeUsesRenamedMacroDeclarationReturnTag(t *testing.T) {
 	text := []byte(`#include <commands>
 native bool:SendMessage(playerid);

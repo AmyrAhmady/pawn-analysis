@@ -4,6 +4,7 @@ package analysis
 import (
 	"context"
 	"errors"
+	"maps"
 	"runtime"
 	"sort"
 	"sync"
@@ -166,7 +167,12 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 	var expandedErr error
 	var expandedTable *symbol.Table
 	reusedExpanded := reusableExpanded(pre, opts.Previous)
+	caseMacroEnds := originalCaseMacroEnds(pre)
+	originalOptions := parser.ParseOptions{CaseMacroEnds: caseMacroEnds}
 	reusedOriginal := reusableOriginalSyntax(pre, opts.Previous, opts.ReuseCompatibleExpansion || reusedTrivia)
+	if reusedOriginal && !reusedPreprocess {
+		reusedOriginal = maps.Equal(caseMacroEnds, originalCaseMacroEnds(opts.Previous.Preprocess))
+	}
 	stableOriginalPositions := reusedOriginal
 	rebasedOriginal := false
 	reparsedDeclaration := false
@@ -184,12 +190,13 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 		)
 		rebasedOriginal = reusedOriginal
 		if !reusedOriginal {
-			parsed, reusedOriginal = parser.ReparseCompactDeclaration(
+			parsed, reusedOriginal = parser.ReparseCompactDeclarationWithOptions(
 				text,
 				pre.OriginalTokens,
 				opts.Previous.Parse,
 				parser.ByteRange{Start: localEdit.Before.Start, End: localEdit.Before.End},
 				parser.ByteRange{Start: localEdit.After.Start, End: localEdit.After.End},
+				originalOptions,
 			)
 			reparsedDeclaration = reusedOriginal
 		}
@@ -210,7 +217,7 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 			pre.OriginalTokens,
 			pre.OriginalCompactTokens,
 			pre.OriginalTrivia,
-			parser.ParseOptions{},
+			originalOptions,
 		)
 		current.end(ctx, 0)
 	}
@@ -302,7 +309,7 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 	}
 	if hasRedeclarationDiagnostics(table) || hasRedeclarationDiagnostics(expandedTable) {
 		invocations := macroInvocationRanges(pre)
-		table.Diagnostics = removeMacroDeclarationDiagnostics(table.Diagnostics, invocations)
+		table.Diagnostics = removeRawMacroRedeclarations(table.Diagnostics, pre, fileID, invocations)
 		if expandedTable != nil {
 			expandedTable.Diagnostics = removeMacroDeclarationDiagnostics(expandedTable.Diagnostics, invocations)
 		}
@@ -1032,6 +1039,59 @@ func removeMacroDeclarationDiagnostics(
 		}
 	}
 	return result
+}
+
+func removeRawMacroRedeclarations(
+	items []diagnostic.Diagnostic, pre *preprocess.Result, file source.FileID,
+	invocations []preprocess.ByteRange,
+) []diagnostic.Diagnostic {
+	result := items[:0]
+	for _, item := range items {
+		if item.Code == "pawn-analysis:symbol/redeclared" {
+			if macroRewritesDeclaration(pre, file, item.Primary, invocations) {
+				continue
+			}
+			rewrittenPrevious := false
+			for _, related := range item.Related {
+				if macroRewritesDeclaration(pre, file, related.Span, invocations) {
+					rewrittenPrevious = true
+					break
+				}
+			}
+			if rewrittenPrevious {
+				continue
+			}
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func macroRewritesDeclaration(
+	pre *preprocess.Result, file source.FileID, span source.Span, invocations []preprocess.ByteRange,
+) bool {
+	if pre.Truncated || span.File != file || !insideMacroInvocation(span, invocations) {
+		return false
+	}
+	start, end := int(span.Start), int(span.End)
+	name := string(pre.Source[start:end])
+	for _, invocation := range pre.MacroInvocations {
+		if invocation.File != 0 || invocation.Range.Start > start || invocation.Range.End < end ||
+			invocation.Expansion.Start == invocation.Expansion.End {
+			continue
+		}
+		tokens := pre.ExpandedTokens
+		expansion := invocation.Expansion
+		index := sort.Search(len(tokens), func(i int) bool { return tokens[i].Start.Offset >= expansion.Start })
+		for index < len(tokens) && tokens[index].Start.Offset < expansion.End {
+			if tokens[index].Kind == token.Identifier && tokens[index].Text(pre.ExpandedSource) == name {
+				return false
+			}
+			index++
+		}
+		return true
+	}
+	return false
 }
 
 func macroInvocationRanges(pre *preprocess.Result) []preprocess.ByteRange {
