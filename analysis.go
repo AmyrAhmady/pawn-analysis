@@ -789,10 +789,16 @@ func CompleteContext(ctx context.Context, prepared *Result, opts Options) (*Resu
 		return nil, err
 	}
 	var previousTags *sema.TagCache
-	if reusableDeclarations(prepared, opts.Previous) &&
-		(len(prepared.Preprocess.MacroInvocations) == 0 ||
-			prepared.ExpandedSymbols == opts.Previous.ExpandedSymbols) {
-		previousTags = opts.Previous.tagCache
+	if previous := opts.Previous; reusableDeclarations(prepared, previous) && previous.Preprocess != nil {
+		// A verified local edit can reuse preprocessing and source positions
+		// even when the previous result did not retain its expanded table.
+		noMacros := len(prepared.Preprocess.MacroInvocations) == 0 &&
+			len(previous.Preprocess.MacroInvocations) == 0
+		sameExpandedSymbols := prepared.ExpandedSymbols != nil &&
+			prepared.ExpandedSymbols == previous.ExpandedSymbols
+		if canReuseLocal || noMacros || sameExpandedSymbols {
+			previousTags = previous.tagCache
+		}
 	}
 	stage = beginStage(opts.Trace, StageSemanticTags)
 	resolver.declarationTags = expandedDeclarationTags(ctx, prepared)
