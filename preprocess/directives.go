@@ -160,6 +160,9 @@ func (e *engine) handleDefine(f *frame, hash token.Token) {
 	}
 	if m.pattern != nil {
 		m.FlexiblePattern = m.Kind == MacroObjectLike && f.toks[patternStart].Kind == token.LParen
+		if m.FlexiblePattern {
+			m.Kind = MacroFunctionLike
+		}
 		m.pattern.spelling = string(f.source[nameTok.Start.Offset:end])
 		m.pattern.tokens = toPtoks(f.source, f.toks[patternStart:f.pos], f.fileIndex)
 		m.ParamSlots = make(map[int]int)
