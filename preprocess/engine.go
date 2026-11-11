@@ -320,6 +320,7 @@ type engine struct {
 	truncated    bool
 	stopped      bool
 	includeStack map[string]int
+	condition    *conditionExpansion
 
 	depthLimitWarned bool
 }

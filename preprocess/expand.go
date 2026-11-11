@@ -50,6 +50,10 @@ func (e *engine) appendOut(t ptok) {
 		})
 		return
 	}
+	if e.condition != nil {
+		e.condition.tokens = append(e.condition.tokens, t)
+		return
+	}
 	if len(e.expandedBuf) > 0 {
 		e.expandedBuf = append(e.expandedBuf, ' ')
 	}
@@ -341,6 +345,10 @@ func (e *engine) expandReplacement(f *frame, toks []ptok, tail *expansionCursor,
 		}
 		t := toks[cursor.pos]
 		cursor.pos++
+		if e.condition != nil && e.condition.keepUnexpanded(t.Kind) {
+			e.appendOut(t)
+			continue
+		}
 		if t.Kind == token.Identifier && !hide[t.text] {
 			if m, ok := e.macros.lookup(t.text); ok {
 				if m.pattern != nil {

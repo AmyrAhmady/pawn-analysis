@@ -113,3 +113,40 @@ func TestNestedPatternInvocationCoversConsumedSource(t *testing.T) {
 	}
 	t.Fatalf("no invocation covers %q: %+v", invocation, result.MacroInvocations)
 }
+
+func TestParenthesisPrefixDoesNotConsumeFollowingDirectives(t *testing.T) {
+	const source = `#if 0
+#define Read( OldRead(1,
+#else
+#define Read( ReadImpl(2,
+#endif
+Read(3)
+`
+	result := preprocess.Run([]byte(source), preprocess.Options{})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", result.Diagnostics)
+	}
+	if got := strings.TrimSpace(expandedText(t, result)); got != "ReadImpl ( 2 , 3 )" {
+		t.Fatalf("expanded = %q", got)
+	}
+}
+
+func TestConditionalMacroExpansionPreservesDefinedOperand(t *testing.T) {
+	const source = `#define MARKER unknown
+#define ENABLED(%0) (defined MARKER && !defined DISABLE_%0)
+#define DISABLE_other 1
+#define SUM 1 + 2
+#if ENABLED(test) && !ENABLED(other) && 2 * SUM == 4
+new enabled;
+#else
+new disabled;
+#endif
+`
+	result := preprocess.Run([]byte(source), preprocess.Options{})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", result.Diagnostics)
+	}
+	if got := strings.TrimSpace(expandedText(t, result)); got != "new enabled ;" {
+		t.Fatalf("expanded = %q", got)
+	}
+}
