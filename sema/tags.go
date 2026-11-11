@@ -212,6 +212,11 @@ type tagChecker struct {
 	cancel      *cancellation
 }
 
+// DeclarationTagResolver supplies the tag from a declaration's expansion.
+type DeclarationTagResolver interface {
+	ResolveDeclarationTag(symbol.Symbol) (string, bool)
+}
+
 func (c *tagChecker) walk(node parser.SyntaxNode, returnTag string) {
 	if !node.Valid() || c.cancel != nil && (c.cancel.err != nil || c.cancel.poll()) {
 		return
@@ -221,6 +226,11 @@ func (c *tagChecker) walk(node parser.SyntaxNode, returnTag string) {
 		if name, ok := node.Field("name"); ok {
 			if item, found := c.declaration(name); found {
 				returnTag = item.Tag
+				if resolver, ok := c.resolver.(DeclarationTagResolver); ok {
+					if expandedTag, found := resolver.ResolveDeclarationTag(item); found {
+						returnTag = expandedTag
+					}
+				}
 			}
 		}
 	case parser.KindVariableDeclarator:

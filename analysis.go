@@ -228,7 +228,7 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 		)
 		current.end(ctx, 0)
 	}
-	needsExpanded := opts.RetainExpanded || opts.Includes != nil
+	needsExpanded := opts.RetainExpanded || opts.Includes != nil || len(pre.MacroInvocations) > 0
 	const parallelParseMinimumBytes = 256 * 1024
 	if needsExpanded && len(text)+len(pre.ExpandedSource) >= parallelParseMinimumBytes && runtime.GOMAXPROCS(0) > 1 {
 		var wait sync.WaitGroup
@@ -308,9 +308,7 @@ func AnalyzeContext(ctx context.Context, text []byte, opts Options) (*Result, er
 		}
 	}
 	diagnostics := pre.ToRegistryDiagnostics(registry, fileID)
-	for _, item := range parsed.Diagnostics {
-		diagnostics = append(diagnostics, item.ToCore(fileID))
-	}
+	diagnostics = appendParseDiagnostics(diagnostics, parsed, expanded, pre, fileID)
 	diagnostics = append(diagnostics, table.Diagnostics...)
 	diagnostics = append(diagnostics, expandedTableDiagnostics(expandedTable, fileID)...)
 	addDiagnosticDocs(diagnostics)
@@ -780,7 +778,9 @@ func CompleteContext(ctx context.Context, prepared *Result, opts Options) (*Resu
 		return nil, err
 	}
 	var previousTags *sema.TagCache
-	if reusableDeclarations(prepared, opts.Previous) {
+	if reusableDeclarations(prepared, opts.Previous) &&
+		(len(prepared.Preprocess.MacroInvocations) == 0 ||
+			prepared.ExpandedSymbols == opts.Previous.ExpandedSymbols) {
 		previousTags = opts.Previous.tagCache
 	}
 	stage = beginStage(opts.Trace, StageSemanticTags)
@@ -968,6 +968,46 @@ func expandedSpanMapper(tokens []token.Token, files func(uint32) source.FileID) 
 	}
 }
 
+func appendParseDiagnostics(
+	items []diagnostic.Diagnostic, original, expanded *parser.CompactFile,
+	pre *preprocess.Result, file source.FileID,
+) []diagnostic.Diagnostic {
+	var invocations []preprocess.ByteRange
+	if expanded != nil && !pre.Truncated {
+		invocations = macroInvocationRanges(pre)
+	}
+	for _, item := range original.Diagnostics {
+		finding := item.ToCore(file)
+		if !insideMacroInvocation(finding.Primary, invocations) {
+			items = append(items, finding)
+		}
+	}
+	if len(invocations) == 0 {
+		return items
+	}
+	// Use expanded syntax within an invocation and map its errors back to
+	// the source span. Recovery edits to generated tokens cannot be applied.
+	for _, item := range expanded.Diagnostics {
+		offset := item.Range.Start
+		index := sort.Search(len(pre.ExpandedTokens), func(i int) bool {
+			return pre.ExpandedTokens[i].End.Offset > offset
+		})
+		if index >= len(pre.ExpandedTokens) {
+			continue
+		}
+		origin := pre.ExpandedTokens[index].Origin
+		if origin == nil || origin.Macro == "" || origin.Span.File != 0 {
+			continue
+		}
+		finding := item.ToCore(file)
+		finding.Primary.Start = source.Offset(origin.Span.Start.Offset)
+		finding.Primary.End = source.Offset(origin.Span.End.Offset)
+		finding.SafeFixes, finding.ReviewFixes = nil, nil
+		items = append(items, finding)
+	}
+	return items
+}
+
 func hasRedeclarationDiagnostics(table *symbol.Table) bool {
 	if table == nil {
 		return false
@@ -1089,6 +1129,18 @@ func (r nameResolver) ResolveCallable(name string) (sema.Callable, bool) {
 
 func (r nameResolver) ResolveTag(tag string) string {
 	return resolveTagMacros(tag, r.macros)
+}
+
+func (r nameResolver) ResolveDeclarationTag(original symbol.Symbol) (string, bool) {
+	expanded, ok := r.global(original.Name)
+	// A generated declaration maps to its entire invocation. Confirm it
+	// comes from this declaration before adopting its return tag.
+	if !ok || !expanded.Kind.IsCallable() || expanded.Span == original.Span ||
+		expanded.Span.File != original.Span.File ||
+		expanded.Span.Start > original.Span.Start || expanded.Span.End < original.Span.End {
+		return "", false
+	}
+	return expanded.Tag, true
 }
 
 func (r nameResolver) global(name string) (symbol.Symbol, bool) {
